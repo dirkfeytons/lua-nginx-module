@@ -3,13 +3,18 @@
 #endif
 #include "ddebug.h"
 
-
+#include <syslog.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <errno.h>
+#include <string.h>
 #include "ngx_http_lua_socket_udp.h"
 #include "ngx_http_lua_socket_tcp.h"
 #include "ngx_http_lua_util.h"
 #include "ngx_http_lua_contentby.h"
 #include "ngx_http_lua_output.h"
 
+#define DBG(fmt, ...) syslog(LOG_DEBUG, fmt, ##__VA_ARGS__)
 
 #define UDP_MAX_DATAGRAM_SIZE 8192
 
@@ -18,6 +23,7 @@ static int ngx_http_lua_socket_udp(lua_State *L);
 static int ngx_http_lua_socket_udp_setpeername(lua_State *L);
 static int ngx_http_lua_socket_udp_send(lua_State *L);
 static int ngx_http_lua_socket_udp_receive(lua_State *L);
+static int ngx_http_lua_socket_udp_setoption(lua_State *L);
 static int ngx_http_lua_socket_udp_settimeout(lua_State *L);
 static void ngx_http_lua_socket_udp_finalize(ngx_http_request_t *r,
     ngx_http_lua_socket_udp_upstream_t *u);
@@ -65,7 +71,7 @@ ngx_http_lua_inject_socket_udp_api(ngx_log_t *log, lua_State *L)
 
     /* udp socket object metatable */
     lua_pushlightuserdata(L, &ngx_http_lua_socket_udp_metatable_key);
-    lua_createtable(L, 0 /* narr */, 4 /* nrec */);
+    lua_createtable(L, 0 /* narr */, 7 /* nrec */);
 
     lua_pushcfunction(L, ngx_http_lua_socket_udp_setpeername);
     lua_setfield(L, -2, "setpeername"); /* ngx socket mt */
@@ -75,6 +81,9 @@ ngx_http_lua_inject_socket_udp_api(ngx_log_t *log, lua_State *L)
 
     lua_pushcfunction(L, ngx_http_lua_socket_udp_receive);
     lua_setfield(L, -2, "receive");
+
+    lua_pushcfunction(L, ngx_http_lua_socket_udp_setoption);
+    lua_setfield(L, -2, "setoption");
 
     lua_pushcfunction(L, ngx_http_lua_socket_udp_settimeout);
     lua_setfield(L, -2, "settimeout"); /* ngx socket mt */
@@ -916,6 +925,46 @@ ngx_http_lua_socket_udp_receive_retval_handler(ngx_http_request_t *r,
     return 1;
 }
 
+
+static int
+ngx_http_lua_socket_udp_setoption(lua_State *L)
+{
+    const char             *option;
+    ngx_http_lua_socket_udp_upstream_t  *u;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    lua_rawgeti(L, 1, SOCKET_CTX_INDEX);
+    u = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (u == NULL) {
+        DBG("u == NULL");
+        return 0;
+    }
+    if (u->udp_connection.connection == NULL) {
+        DBG("u->udp_connection.connection == NULL");
+        return 0;
+    }
+    option = luaL_checkstring(L, 2);
+    if (strcmp(option, "passcred") == 0) {
+        int                 value;
+        int                 rc;
+
+        if (!lua_isboolean(L, 3)) {
+            return luaL_error(L, "option '%s' expects %s value", "passcred", "boolean");
+        }
+        value = lua_toboolean(L, 3);
+        DBG("setsockopt");
+        rc = setsockopt(u->udp_connection.connection->fd, SOL_SOCKET, SO_PASSCRED, &value, sizeof(value));
+        if (rc != 0) {
+            return luaL_error(L, "setsockopt failed: %s", strerror(errno));
+        }
+    } else {
+        return luaL_error(L, "unknown option '%s'", option);
+    }
+
+    return 0;
+}
 
 static int
 ngx_http_lua_socket_udp_settimeout(lua_State *L)
