@@ -14,7 +14,8 @@
 #include "ngx_http_lua_contentby.h"
 #include "ngx_http_lua_output.h"
 
-#define DBG(fmt, ...) syslog(LOG_DEBUG, fmt, ##__VA_ARGS__)
+//#define DBG(fmt, ...) syslog(LOG_DEBUG, fmt, ##__VA_ARGS__)
+#define DBG(fmt, ...)
 
 #define UDP_MAX_DATAGRAM_SIZE 8192
 
